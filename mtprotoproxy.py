@@ -491,14 +491,20 @@ class TgConnectionPool:
 
     async def open_tg_connection(self, host, port, init_func=None):
         task = asyncio.open_connection(host, port, limit=get_to_clt_bufsize())
-        reader_tgt, writer_tgt = await asyncio.wait_for(task, timeout=config.TG_CONNECT_TIMEOUT)
+        if config.TG_CONNECT_TIMEOUT == -1:
+            reader_tgt, writer_tgt = await task
+        else:
+            reader_tgt, writer_tgt = await asyncio.wait_for(task, timeout=config.TG_CONNECT_TIMEOUT)
 
         set_keepalive(writer_tgt.get_extra_info("socket"))
         set_bufsizes(writer_tgt.get_extra_info("socket"), get_to_clt_bufsize(), get_to_tg_bufsize())
 
         if init_func:
-            return await asyncio.wait_for(init_func(host, port, reader_tgt, writer_tgt),
-                                          timeout=config.TG_CONNECT_TIMEOUT)
+            if config.TG_CONNECT_TIMEOUT == -1:
+                return await init_func(host, port, reader_tgt, writer_tgt)
+            else:
+                return await asyncio.wait_for(init_func(host, port, reader_tgt, writer_tgt),
+                                              timeout=config.TG_CONNECT_TIMEOUT)
         return reader_tgt, writer_tgt
 
     def register_host_port(self, host, port, init_func):
