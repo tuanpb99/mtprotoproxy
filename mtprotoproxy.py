@@ -1716,6 +1716,10 @@ async def handle_client(reader_clt, writer_clt):
     reader_clt, writer_clt, proto_tag, user, dc_idx, enc_key_and_iv, peer = clt_data
     cl_ip, cl_port = peer
 
+    print_err(
+        "Client %s:%s selected datacenter %s" % (cl_ip, cl_port, dc_idx)
+    )
+
     update_user_stats(user, connects=1)
 
     connect_directly = not config.USE_MIDDLE_PROXY or disable_middle_proxy
