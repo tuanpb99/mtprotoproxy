@@ -95,6 +95,7 @@ proxy_links = []
 
 stats = collections.Counter()
 user_stats = collections.defaultdict(collections.Counter)
+connected_users_ips = collections.defaultdict(set)
 
 config = {}
 
@@ -236,6 +237,9 @@ def init_config():
 
     # delay in seconds between stats printing
     conf_dict.setdefault("STATS_PRINT_PERIOD", 600)
+
+    # delay in seconds between printing connected IP addresses
+    conf_dict.setdefault("CONNECTED_IP_PRINT_PERIOD", 5*60)
 
     # delay in seconds between middle proxy info updates
     conf_dict.setdefault("PROXY_INFO_UPDATE_PERIOD", 24*60*60)
@@ -1681,34 +1685,39 @@ async def handle_client(reader_clt, writer_clt):
     task_clt_to_tg = asyncio.ensure_future(clt_to_tg)
 
     update_user_stats(user, curr_connects=1)
+    connected_users_ips[user].add(cl_ip)
 
-    tcp_limit_hit = (
-        user in config.USER_MAX_TCP_CONNS and
-        user_stats[user]["curr_connects"] > config.USER_MAX_TCP_CONNS[user]
-    )
+    try:
+        tcp_limit_hit = (
+            user in config.USER_MAX_TCP_CONNS and
+            user_stats[user]["curr_connects"] > config.USER_MAX_TCP_CONNS[user]
+        )
 
-    user_expired = (
-        user in config.USER_EXPIRATIONS and
-        datetime.datetime.now() > config.USER_EXPIRATIONS[user]
-    )
+        user_expired = (
+            user in config.USER_EXPIRATIONS and
+            datetime.datetime.now() > config.USER_EXPIRATIONS[user]
+        )
 
-    user_data_quota_hit = (
-        user in config.USER_DATA_QUOTA and
-        (user_stats[user]["octets_to_client"] +
-         user_stats[user]["octets_from_client"] > config.USER_DATA_QUOTA[user])
-    )
+        user_data_quota_hit = (
+            user in config.USER_DATA_QUOTA and
+            (user_stats[user]["octets_to_client"] +
+             user_stats[user]["octets_from_client"] > config.USER_DATA_QUOTA[user])
+        )
 
-    if (not tcp_limit_hit) and (not user_expired) and (not user_data_quota_hit):
-        start = time.time()
-        await asyncio.wait([task_tg_to_clt, task_clt_to_tg], return_when=asyncio.FIRST_COMPLETED)
-        update_durations(time.time() - start)
+        if (not tcp_limit_hit) and (not user_expired) and (not user_data_quota_hit):
+            start = time.time()
+            await asyncio.wait([task_tg_to_clt, task_clt_to_tg], return_when=asyncio.FIRST_COMPLETED)
+            update_durations(time.time() - start)
+    finally:
+        update_user_stats(user, curr_connects=-1)
+        connected_users_ips[user].discard(cl_ip)
+        if not connected_users_ips[user]:
+            connected_users_ips.pop(user, None)
 
-    update_user_stats(user, curr_connects=-1)
+        task_tg_to_clt.cancel()
+        task_clt_to_tg.cancel()
 
-    task_tg_to_clt.cancel()
-    task_clt_to_tg.cancel()
-
-    writer_tg.transport.abort()
+        writer_tg.transport.abort()
 
 
 async def handle_client_wrapper(reader, writer):
@@ -1870,6 +1879,20 @@ async def stats_printer():
                 print("%s, %d times" % (ip, times))
             print(flush=True)
             last_clients_with_same_handshake.clear()
+
+
+async def log_connected_users():
+    while True:
+        await asyncio.sleep(config.CONNECTED_IP_PRINT_PERIOD)
+
+        if connected_users_ips:
+            print("Connected users:")
+            for user, ips in connected_users_ips.items():
+                if ips:
+                    print(user + ":")
+                    for ip in sorted(ips):
+                        print("    " + ip)
+            print(flush=True)
 
 
 async def make_https_req(url, host="core.telegram.org"):
@@ -2323,6 +2346,9 @@ def create_utilitary_tasks(loop):
 
     stats_printer_task = asyncio.Task(stats_printer(), loop=loop)
     tasks.append(stats_printer_task)
+
+    connected_printer_task = asyncio.Task(log_connected_users(), loop=loop)
+    tasks.append(connected_printer_task)
 
     if config.USE_MIDDLE_PROXY:
         middle_proxy_updater_task = asyncio.Task(update_middle_proxy_info(), loop=loop)

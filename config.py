@@ -36,3 +36,6 @@ MAX_CONNS_IN_POOL = 64
 # Interval for testing Telegram middle proxies in seconds
 # ACTIVE_PROXY_REFRESH_PERIOD = 5*60
 
+# Interval for printing currently connected IPs in seconds
+# CONNECTED_IP_PRINT_PERIOD = 5*60
+
