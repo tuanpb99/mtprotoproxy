@@ -34,8 +34,8 @@ The proxy can be launched:
 - with runtime statistics exported to [Prometheus](https://prometheus.io/)
 
 - datacenter addresses refresh automatically (tweak with `DC_INFO_UPDATE_PERIOD`)
-=======
 - set `MAX_CONNS_IN_POOL` to control how many Telegram connections are kept in
   the pool. Reducing it (e.g. setting to `1`) avoids excessive reconnect
   attempts when there are few users.
+- active middle proxies check automatically (tweak with `ACTIVE_PROXY_REFRESH_PERIOD`)
 

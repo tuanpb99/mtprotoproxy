@@ -50,6 +50,10 @@ TG_MIDDLE_PROXIES_V6 = {
     5: [("2001:b28:f23f:f005::d", 8888)], -5: [("2001:67c:04e8:f004::d", 8888)]
 }
 
+# contains only proxies that responded successfully on the last check
+ACTIVE_MIDDLE_PROXIES_V4 = {}
+ACTIVE_MIDDLE_PROXIES_V6 = {}
+
 PROXY_SECRET = bytes.fromhex(
     "c4f9faca9678e6bb48ad6c7e2ce5c0d24430645d554addeb55419e034da62721" +
     "d046eaab6e52ab14a95a443ecfb3463e79a05a66612adf9caeda8be9a80da698" +
@@ -239,6 +243,9 @@ def init_config():
 
     # delay in seconds between middle proxy info updates
     conf_dict.setdefault("PROXY_INFO_UPDATE_PERIOD", 24*60*60)
+
+    # delay in seconds between active middle proxy checks
+    conf_dict.setdefault("ACTIVE_PROXY_REFRESH_PERIOD", 5*60)
 
     # delay in seconds between datacenter info updates
     conf_dict.setdefault("DC_INFO_UPDATE_PERIOD", 24*60*60)
@@ -1545,13 +1552,19 @@ async def do_middleproxy_handshake(proto_tag, dc_idx, cl_ip, cl_port):
     use_ipv6_tg = (my_ip_info["ipv6"] and (config.PREFER_IPV6 or not my_ip_info["ipv4"]))
 
     if use_ipv6_tg:
-        if dc_idx not in TG_MIDDLE_PROXIES_V6:
+        proxies = ACTIVE_MIDDLE_PROXIES_V6.get(dc_idx)
+        if not proxies:
+            proxies = TG_MIDDLE_PROXIES_V6.get(dc_idx)
+        if not proxies:
             return False
-        addr, port = myrandom.choice(TG_MIDDLE_PROXIES_V6[dc_idx])
+        addr, port = myrandom.choice(proxies)
     else:
-        if dc_idx not in TG_MIDDLE_PROXIES_V4:
+        proxies = ACTIVE_MIDDLE_PROXIES_V4.get(dc_idx)
+        if not proxies:
+            proxies = TG_MIDDLE_PROXIES_V4.get(dc_idx)
+        if not proxies:
             return False
-        addr, port = myrandom.choice(TG_MIDDLE_PROXIES_V4[dc_idx])
+        addr, port = myrandom.choice(proxies)
 
     try:
         ret = await tg_connection_pool.get_connection(addr, port, middleproxy_handshake)
@@ -2114,6 +2127,48 @@ async def update_middle_proxy_info():
         await asyncio.sleep(config.PROXY_INFO_UPDATE_PERIOD)
 
 
+async def update_active_proxies():
+    global ACTIVE_MIDDLE_PROXIES_V4
+    global ACTIVE_MIDDLE_PROXIES_V6
+
+    async def is_proxy_alive(host, port):
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port), timeout=5
+            )
+            writer.close()
+            if hasattr(writer, "wait_closed"):
+                await writer.wait_closed()
+            return True
+        except Exception:
+            return False
+
+    while True:
+        new_v4 = {}
+        new_v6 = {}
+
+        for dc_idx, proxies in TG_MIDDLE_PROXIES_V4.items():
+            alive = []
+            for host, port in proxies:
+                if await is_proxy_alive(host, port):
+                    alive.append((host, port))
+            if alive:
+                new_v4[dc_idx] = alive
+
+        for dc_idx, proxies in TG_MIDDLE_PROXIES_V6.items():
+            alive = []
+            for host, port in proxies:
+                if await is_proxy_alive(host, port):
+                    alive.append((host, port))
+            if alive:
+                new_v6[dc_idx] = alive
+
+        ACTIVE_MIDDLE_PROXIES_V4 = new_v4
+        ACTIVE_MIDDLE_PROXIES_V6 = new_v6
+
+        await asyncio.sleep(config.ACTIVE_PROXY_REFRESH_PERIOD)
+
+
 def init_ip_info():
     global my_ip_info
     global disable_middle_proxy
@@ -2347,6 +2402,9 @@ def create_utilitary_tasks(loop):
     if config.USE_MIDDLE_PROXY:
         middle_proxy_updater_task = asyncio.Task(update_middle_proxy_info(), loop=loop)
         tasks.append(middle_proxy_updater_task)
+
+        active_proxy_updater_task = asyncio.Task(update_active_proxies(), loop=loop)
+        tasks.append(active_proxy_updater_task)
 
         if config.GET_TIME_PERIOD:
             time_get_task = asyncio.Task(get_srv_time(), loop=loop)

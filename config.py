@@ -28,8 +28,11 @@ MODES = {
 
 # Interval for datacenter info refresh in seconds
 # DC_INFO_UPDATE_PERIOD = 24*60*60
-=======
+
 # maximum count of Telegram connections in the pool. Reducing this value may
 # help when running the proxy for a small number of users.
 MAX_CONNS_IN_POOL = 64
+
+# Interval for testing Telegram middle proxies in seconds
+# ACTIVE_PROXY_REFRESH_PERIOD = 5*60
 
