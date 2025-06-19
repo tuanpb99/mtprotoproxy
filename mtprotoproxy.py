@@ -1630,7 +1630,8 @@ async def do_middleproxy_handshake(proto_tag, dc_idx, cl_ip, cl_port):
         if not proxies:
             continue
 
-        for addr, port in proxies:
+        for proxy in proxies:
+            addr, port = proxy[:2]
             try:
                 ret = await tg_connection_pool.get_connection(addr, port, middleproxy_handshake)
                 reader_tgt, writer_tgt, my_ip, my_port = ret
@@ -2182,14 +2183,18 @@ async def update_active_proxies():
     global ACTIVE_MIDDLE_PROXIES_V6
 
     async def is_proxy_alive(host, port):
+        start = time.monotonic()
         try:
-            reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=5)
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port), timeout=5
+            )
+            latency = time.monotonic() - start
             writer.close()
             if hasattr(writer, "wait_closed"):
                 await writer.wait_closed()
-            return True
+            return latency
         except Exception:
-            return False
+            return None
 
     while True:
         new_v4 = {}
@@ -2198,21 +2203,39 @@ async def update_active_proxies():
         for dc_idx, proxies in TG_MIDDLE_PROXIES_V4.items():
             alive = []
             for host, port in proxies:
-                if await is_proxy_alive(host, port):
-                    alive.append((host, port))
+                latency = await is_proxy_alive(host, port)
+                if latency is not None:
+                    alive.append((host, port, latency))
             if alive:
+                alive.sort(key=lambda x: x[2])
                 new_v4[dc_idx] = alive
 
         for dc_idx, proxies in TG_MIDDLE_PROXIES_V6.items():
             alive = []
             for host, port in proxies:
-                if await is_proxy_alive(host, port):
-                    alive.append((host, port))
+                latency = await is_proxy_alive(host, port)
+                if latency is not None:
+                    alive.append((host, port, latency))
             if alive:
+                alive.sort(key=lambda x: x[2])
                 new_v6[dc_idx] = alive
 
         ACTIVE_MIDDLE_PROXIES_V4 = new_v4
         ACTIVE_MIDDLE_PROXIES_V6 = new_v6
+
+        if new_v4 or new_v6:
+            print("Active middle proxies:")
+            for dc, lst in sorted(new_v4.items()):
+                desc = ", ".join(
+                    f"{h}:{p} ({latency:.2f}s)" for h, p, latency in lst
+                )
+                print(f"  v4 {dc} -> {desc}")
+            for dc, lst in sorted(new_v6.items()):
+                desc = ", ".join(
+                    f"{h}:{p} ({latency:.2f}s)" for h, p, latency in lst
+                )
+                print(f"  v6 {dc} -> {desc}")
+            print(flush=True)
 
         await asyncio.sleep(config.ACTIVE_PROXY_REFRESH_PERIOD)
 
