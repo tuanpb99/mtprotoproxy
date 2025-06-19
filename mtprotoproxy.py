@@ -1390,6 +1390,8 @@ async def do_direct_handshake(proto_tag, dc_idx, dec_key_and_iv=None):
 
     for i in range(len(dc_list)):
         dc = dc_list[(start_idx + i) % len(dc_list)]
+        if not await quick_is_reachable(dc, TG_DATACENTER_PORT, timeout=1):
+            continue
         try:
             reader_tgt, writer_tgt = await tg_connection_pool.get_connection(dc, TG_DATACENTER_PORT)
         except (ConnectionRefusedError, ConnectionAbortedError, OSError, asyncio.TimeoutError):
@@ -1604,6 +1606,19 @@ async def middleproxy_handshake(host, port, reader_tgt, writer_tgt):
     return reader_tgt, writer_tgt, my_ip, my_port
 
 
+async def quick_is_reachable(host, port, timeout=1):
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout
+        )
+        writer.close()
+        if hasattr(writer, "wait_closed"):
+            await writer.wait_closed()
+        return True
+    except Exception:
+        return False
+
+
 async def do_middleproxy_handshake(proto_tag, dc_idx, cl_ip, cl_port):
     global my_ip_info
     global tg_connection_pool
@@ -1625,6 +1640,7 @@ async def do_middleproxy_handshake(proto_tag, dc_idx, cl_ip, cl_port):
     for shift in range(total_dcs):
         idx = sign * (((start_idx - 1 + shift) % total_dcs) + 1)
         proxies = proxies_active.get(idx)
+        active_pairs = {(h, p) for h, p, *_ in proxies} if proxies else set()
         if not proxies:
             proxies = proxies_all.get(idx)
         if not proxies:
@@ -1632,6 +1648,9 @@ async def do_middleproxy_handshake(proto_tag, dc_idx, cl_ip, cl_port):
 
         for proxy in proxies:
             addr, port = proxy[:2]
+            if active_pairs and (addr, port) not in active_pairs:
+                if not await quick_is_reachable(addr, port, timeout=1):
+                    continue
             try:
                 ret = await tg_connection_pool.get_connection(addr, port, middleproxy_handshake)
                 reader_tgt, writer_tgt, my_ip, my_port = ret
