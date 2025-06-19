@@ -32,6 +32,10 @@ The proxy can be launched:
 - several times, clients will be automaticaly balanced between instances
 - with uvloop module to get an extra speed boost
 - with runtime statistics exported to [Prometheus](https://prometheus.io/)
+
+- datacenter addresses refresh automatically (tweak with `DC_INFO_UPDATE_PERIOD`)
+=======
 - set `MAX_CONNS_IN_POOL` to control how many Telegram connections are kept in
   the pool. Reducing it (e.g. setting to `1`) avoids excessive reconnect
   attempts when there are few users.
+

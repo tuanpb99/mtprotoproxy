@@ -240,6 +240,9 @@ def init_config():
     # delay in seconds between middle proxy info updates
     conf_dict.setdefault("PROXY_INFO_UPDATE_PERIOD", 24*60*60)
 
+    # delay in seconds between datacenter info updates
+    conf_dict.setdefault("DC_INFO_UPDATE_PERIOD", 24*60*60)
+
     # delay in seconds between time getting, zero means disabled
     conf_dict.setdefault("GET_TIME_PERIOD", 10*60)
 
@@ -2028,6 +2031,33 @@ async def clear_ip_resolving_cache():
         await asyncio.sleep(myrandom.randrange(min_sleep, max_sleep))
 
 
+async def update_datacenter_info():
+    DC_INFO_ADDR_V4 = "https://core.telegram.org/getDcV4"
+    DC_INFO_ADDR_V6 = "https://core.telegram.org/getDcV6"
+
+    global TG_DATACENTERS_V4
+    global TG_DATACENTERS_V6
+
+    while True:
+        try:
+            headers, body = await make_https_req(DC_INFO_ADDR_V4)
+            addrs = re.findall(rb"(?:\d{1,3}\.){3}\d{1,3}", body)
+            if addrs:
+                TG_DATACENTERS_V4 = [a.decode() for a in addrs]
+        except Exception as E:
+            print_err("Error updating datacenter IPv4 list:", E)
+
+        try:
+            headers, body = await make_https_req(DC_INFO_ADDR_V6)
+            addrs = [a.decode() for a in re.findall(rb"[0-9a-fA-F:]+", body) if b":" in a]
+            if addrs:
+                TG_DATACENTERS_V6 = addrs
+        except Exception as E:
+            print_err("Error updating datacenter IPv6 list:", E)
+
+        await asyncio.sleep(config.DC_INFO_UPDATE_PERIOD)
+
+
 async def update_middle_proxy_info():
     async def get_new_proxies(url):
         PROXY_REGEXP = re.compile(r"proxy_for\s+(-?\d+)\s+(.+):(\d+)\s*;")
@@ -2310,6 +2340,9 @@ def create_utilitary_tasks(loop):
 
     stats_printer_task = asyncio.Task(stats_printer(), loop=loop)
     tasks.append(stats_printer_task)
+
+    dc_info_updater_task = asyncio.Task(update_datacenter_info(), loop=loop)
+    tasks.append(dc_info_updater_task)
 
     if config.USE_MIDDLE_PROXY:
         middle_proxy_updater_task = asyncio.Task(update_middle_proxy_info(), loop=loop)

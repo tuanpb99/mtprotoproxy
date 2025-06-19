@@ -26,6 +26,10 @@ MODES = {
 # Tag for advertising, obtainable from @MTProxybot
 # AD_TAG = "3c09c680b76ee91a4c25ad51f742267d"
 
+# Interval for datacenter info refresh in seconds
+# DC_INFO_UPDATE_PERIOD = 24*60*60
+=======
 # maximum count of Telegram connections in the pool. Reducing this value may
 # help when running the proxy for a small number of users.
 MAX_CONNS_IN_POOL = 64
+
