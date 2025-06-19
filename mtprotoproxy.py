@@ -1637,6 +1637,17 @@ async def handle_client(reader_clt, writer_clt):
 
     reader_tg, writer_tg = tg_data
 
+    try:
+        tg_addr, tg_port = writer_tg.get_extra_info("peername")[:2]
+    except Exception:
+        tg_addr, tg_port = "?", "?"
+
+    conn_type = "middle proxy" if not connect_directly else "datacenter"
+    print(
+        f"{cl_ip} {user} connected via {conn_type} {tg_addr}:{tg_port}",
+        flush=True,
+    )
+
     if connect_directly and config.FAST_MODE:
         class FakeEncryptor:
             def encrypt(self, data):
