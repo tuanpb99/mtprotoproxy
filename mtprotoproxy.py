@@ -265,6 +265,9 @@ def init_config():
     # telegram servers connect timeout in seconds
     conf_dict.setdefault("TG_CONNECT_TIMEOUT", 10)
 
+    # the number of telegram connections kept in a pool
+    conf_dict.setdefault("MAX_CONNS_IN_POOL", 64)
+
     # listen address for IPv4
     conf_dict.setdefault("LISTEN_ADDR_IPV4", "0.0.0.0")
 
@@ -294,6 +297,7 @@ def init_config():
 
     # allow access to config by attributes
     config = type("config", (dict,), conf_dict)(conf_dict)
+    TgConnectionPool.MAX_CONNS_IN_POOL = config.MAX_CONNS_IN_POOL
 
 
 def apply_upstream_proxy_settings():
